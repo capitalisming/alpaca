@@ -67,3 +67,23 @@ unit tests.
 - `alpaca-py` is pinned exactly in `requirements.txt`.
 - Options, crypto-specific execution, strategy logic, and dashboard work
   remain out of scope.
+
+## Vertical slice
+
+Run the complete credential-free flow with the in-memory Alpaca client:
+
+```shell
+python run_vertical_slice.py --symbol AAPL
+```
+
+The runner creates a deterministic placeholder `TradingProposal`, evaluates
+it through the Risk Engine, submits only an executable `RiskDecision`, and
+appends the outcome to the gitignored `logs/trace.jsonl` audit trace. When
+both Alpaca credentials are available, the same flow selects the existing
+paper-only REST adapter; live trading remains unavailable.
+
+## COMPLETED_TASK: TASK-03
+
+The vertical slice, fake client, portfolio-state boundary, and lifecycle trace
+are implemented with regression coverage. Real Alpaca execution remains
+guarded by `ALPACA_PAPER_TRADE=true` and the opt-in integration test.

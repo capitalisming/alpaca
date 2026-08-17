@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+import traceback
 
 from alpaca.trading.enums import OrderSide, QueryOrderStatus
 from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
@@ -213,5 +214,40 @@ def test_network_errors_are_not_hidden():
         raise ConnectionError("paper endpoint unavailable")
 
     fake.submit_order = fail
-    with pytest.raises(ConnectionError, match="paper endpoint unavailable"):
+    with pytest.raises(alpaca_adapter.AlpacaRequestError) as exc_info:
         AlpacaRestClient(trading_client=fake).submit_order(decision())
+
+    assert "ConnectionError" in str(exc_info.value)
+    assert "paper endpoint unavailable" not in str(exc_info.value)
+
+
+def test_alpaca_errors_never_expose_secret_marker_on_read_or_submit():
+    marker = "SECRET_MARKER_XYZ"
+
+    read_fake = FakeTradingClient()
+
+    def fail_read():
+        raise RuntimeError(marker)
+
+    read_fake.get_account = fail_read
+    with pytest.raises(alpaca_adapter.AlpacaRequestError) as read_exc:
+        AlpacaRestClient(trading_client=read_fake).get_open_positions()
+
+    submit_fake = FakeTradingClient()
+
+    def fail_submit(order_data):
+        raise RuntimeError(marker)
+
+    submit_fake.submit_order = fail_submit
+    with pytest.raises(alpaca_adapter.AlpacaRequestError) as submit_exc:
+        AlpacaRestClient(trading_client=submit_fake).submit_order(decision())
+
+    for exc_info in (read_exc, submit_exc):
+        error = exc_info.value
+        assert error.__context__ is None
+        assert error.__cause__ is None
+        assert marker not in str(error)
+        assert marker not in repr(error)
+        assert marker not in repr(error.args)
+        assert marker not in "".join(traceback.format_exception(error))
+        assert "RuntimeError" in str(error)
