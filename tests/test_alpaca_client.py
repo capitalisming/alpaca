@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+import traceback
 
 from alpaca.trading.enums import OrderSide, QueryOrderStatus
 from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
@@ -242,6 +243,11 @@ def test_alpaca_errors_never_expose_secret_marker_on_read_or_submit():
         AlpacaRestClient(trading_client=submit_fake).submit_order(decision())
 
     for exc_info in (read_exc, submit_exc):
-        assert marker not in str(exc_info.value)
-        assert marker not in repr(exc_info.value)
-        assert "RuntimeError" in str(exc_info.value)
+        error = exc_info.value
+        assert error.__context__ is None
+        assert error.__cause__ is None
+        assert marker not in str(error)
+        assert marker not in repr(error)
+        assert marker not in repr(error.args)
+        assert marker not in "".join(traceback.format_exception(error))
+        assert "RuntimeError" in str(error)

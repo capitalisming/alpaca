@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 class AlpacaRequestError(RuntimeError):
-    # DEC-03: `from None` suppresses display, but the original remains in __context__.
     """Safe public error for failures raised by the Alpaca client."""
 
 
@@ -98,13 +97,13 @@ class AlpacaRestClient(AlpacaClient):
         )
 
     def _call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
+        failure: AlpacaRequestError | None = None
         try:
             return fn(*args, **kwargs)
         except Exception as exc:
             error_type = type(exc).__name__
-            raise AlpacaRequestError(
-                f"Alpaca request failed ({error_type})"
-            ) from None
+            failure = AlpacaRequestError(f"Alpaca request failed ({error_type})")
+        raise failure
 
     def get_open_positions(self) -> list[OpenPosition]:
         account = self._call(self._client.get_account)
