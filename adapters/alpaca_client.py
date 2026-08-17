@@ -20,6 +20,11 @@ from core.schemas import Action, AssetClass, OrderType, RiskDecision
 logger = logging.getLogger(__name__)
 
 
+class AlpacaRequestError(RuntimeError):
+    # DEC-03: `from None` suppresses display, but the original remains in __context__.
+    """Safe public error for failures raised by the Alpaca client."""
+
+
 class AlpacaClient(Protocol):
     """Everything the rest of the system is allowed to assume about Alpaca."""
 
@@ -92,10 +97,20 @@ class AlpacaRestClient(AlpacaClient):
             paper=True,
         )
 
+    def _call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            error_type = type(exc).__name__
+            raise AlpacaRequestError(
+                f"Alpaca request failed ({error_type})"
+            ) from None
+
     def get_open_positions(self) -> list[OpenPosition]:
-        equity = _positive_number(self._client.get_account().equity, "account equity")
+        account = self._call(self._client.get_account)
+        equity = _positive_number(account.equity, "account equity")
         positions: list[OpenPosition] = []
-        for position in self._client.get_all_positions():
+        for position in self._call(self._client.get_all_positions):
             try:
                 market_value = abs(float(position.market_value))
             except (TypeError, ValueError) as exc:
@@ -125,7 +140,7 @@ class AlpacaRestClient(AlpacaClient):
         after = datetime.now(timezone.utc) - timedelta(seconds=lookback_seconds)
         request = GetOrdersRequest(status=QueryOrderStatus.ALL, after=after)
         recent: list[RecentOrder] = []
-        for order in self._client.get_orders(filter=request):
+        for order in self._call(self._client.get_orders, filter=request):
             side = _enum_value(order.side).lower()
             if side == OrderSide.BUY.value:
                 action = Action.BUY
@@ -152,7 +167,7 @@ class AlpacaRestClient(AlpacaClient):
         return recent
 
     def get_daily_pnl_pct(self) -> float:
-        account = self._client.get_account()
+        account = self._call(self._client.get_account)
         equity = _positive_number(account.equity, "account equity")
         last_equity = _positive_number(account.last_equity, "last equity")
         return (equity - last_equity) / last_equity
@@ -175,7 +190,8 @@ class AlpacaRestClient(AlpacaClient):
         if not math.isfinite(position_size) or position_size <= 0:
             raise ValueError("effective_position_size must be positive")
 
-        equity = _positive_number(self._client.get_account().equity, "account equity")
+        account = self._call(self._client.get_account)
+        equity = _positive_number(account.equity, "account equity")
         notional = round(equity * position_size, 2)
         if notional <= 0:
             raise ValueError("effective_position_size produces a zero-dollar order")
@@ -203,7 +219,7 @@ class AlpacaRestClient(AlpacaClient):
         else:
             raise ValueError(f"unsupported order type: {proposal.order_type}")
 
-        order = self._client.submit_order(order_data=order_request)
+        order = self._call(self._client.submit_order, order_data=order_request)
         raw = self._raw_order(order)
         filled_qty_value = raw.get("filled_qty", getattr(order, "filled_qty", None))
         filled_qty = float(filled_qty_value) if filled_qty_value not in (None, "") else None
